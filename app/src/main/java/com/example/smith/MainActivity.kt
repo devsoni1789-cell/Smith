@@ -233,9 +233,31 @@ class MainActivity : Activity() {
         try{
             if(req==900){contentResolver.openOutputStream(data.data!!)!!.use{it.write(pendingExport.toByteArray())};Toast.makeText(this,"Backup exported",Toast.LENGTH_LONG).show()}
             else if(req==901){
-                val s=contentResolver.openInputStream(data.data!!)!!.use{BufferedReader(InputStreamReader(it)).readText()};val o=JSONObject(s);val ps=o.optJSONArray("parties")?:JSONArray();val d=db.writableDatabase
-                d.beginTransaction();try{for(i in 0 until ps.length()){val x=ps.getJSONObject(i);val v=ContentValues();listOf("name","type","mobile","address","notes","createdAt").forEach{k->if(x.has(k))v.put(k,x.optString(k))};d.insert("parties",null,v)};d.setTransactionSuccessful()}finally{d.endTransaction()}
-                Toast.makeText(this,"Party data imported. Existing data kept.",Toast.LENGTH_LONG).show();showHome()
+                val s=contentResolver.openInputStream(data.data!!)!!.use{BufferedReader(InputStreamReader(it)).readText()}
+                val o=JSONObject(s);val ps=o.optJSONArray("parties")?:JSONArray();val ws=o.optJSONArray("works")?:JSONArray();val pays=o.optJSONArray("payments")?:JSONArray()
+                val d=db.writableDatabase;val partyMap=HashMap<Long,Long>();val workMap=HashMap<Long,Long>()
+                d.beginTransaction()
+                try{
+                    for(i in 0 until ps.length()){
+                        val x=ps.getJSONObject(i);val v=ContentValues()
+                        listOf("name","type","mobile","address","notes","createdAt").forEach{k->if(x.has(k))v.put(k,x.optString(k))}
+                        val newId=d.insert("parties",null,v);if(newId>0)partyMap[x.optLong("id")]=newId
+                    }
+                    for(i in 0 until ws.length()){
+                        val x=ws.getJSONObject(i);val v=ContentValues()
+                        listOf("workNo","receivedDate","expectedDate","deliveryDate","workType","itemName","description","quantity","purity","goldReceived","goldReturned","wastage","stoneWeight","labourType","labourRate","labourAmount","otherCharges","discount","totalCharges","status","notes","createdAt","updatedAt").forEach{k->if(x.has(k))v.put(k,x.optString(k))}
+                        val partyId=partyMap[x.optLong("partyId")]?:0L
+                        if(partyId>0){v.put("partyId",partyId);var newId=d.insert("works",null,v)
+                            if(newId<0){v.put("workNo",db.nextWorkNo());newId=d.insert("works",null,v)}
+                            if(newId>0)workMap[x.optLong("id")]=newId}
+                    }
+                    for(i in 0 until pays.length()){
+                        val x=pays.getJSONObject(i);val workId=workMap[x.optLong("workId")]?:0L
+                        if(workId>0){val v=ContentValues();v.put("workId",workId);v.put("date",x.optString("date"));v.put("amount",x.optDouble("amount"));v.put("method",x.optString("method"));v.put("note",x.optString("note"));d.insert("payments",null,v)}
+                    }
+                    d.setTransactionSuccessful()
+                }finally{d.endTransaction()}
+                Toast.makeText(this,"Complete backup imported. Existing data kept.",Toast.LENGTH_LONG).show();showHome()
             }
         }catch(e:Exception){Toast.makeText(this,"Import failed: "+e.message,Toast.LENGTH_LONG).show()}
     }
