@@ -6,7 +6,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class DbHelper(context: Context) : SQLiteOpenHelper(context, "smith.db", null, 1) {
+class DbHelper(context: Context) : SQLiteOpenHelper(context, "smith.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE parties(
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, type TEXT NOT NULL,
@@ -29,7 +29,13 @@ class DbHelper(context: Context) : SQLiteOpenHelper(context, "smith.db", null, 1
             FOREIGN KEY(workId) REFERENCES works(id) ON DELETE CASCADE
         )""")
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_works_party ON works(partyId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_payments_work ON payments(workId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_works_status ON works(status)")
+        }
+    }
 
     fun nextWorkNo(): String {
         val c=readableDatabase.rawQuery("SELECT COUNT(*) FROM works",null);c.moveToFirst()
@@ -56,20 +62,38 @@ class DbHelper(context: Context) : SQLiteOpenHelper(context, "smith.db", null, 1
     fun deleteWork(id:Long){writableDatabase.delete("payments","workId=?",arrayOf(id.toString()));writableDatabase.delete("works","id=?",arrayOf(id.toString()))}
 
     fun works(search:String="",status:String=""):List<Map<String,Any>> {
-        val out=mutableListOf<Map<String,Any>>();val clauses=mutableListOf<String>();val args=mutableListOf<String>()
-        if(search.isNotBlank()){clauses.add("(w.workNo LIKE ? OR p.name LIKE ? OR w.itemName LIKE ? OR w.description LIKE ? OR CAST(w.totalCharges AS TEXT) LIKE ? OR CAST(w.labourAmount AS TEXT) LIKE ?)");repeat(6){args.add("%$search%")}}
-        if(status.isNotBlank()){clauses.add("w.status=?");args.add(status)}
-        val where=if(clauses.isEmpty())"" else " WHERE "+clauses.joinToString(" AND ")
-        val c=readableDatabase.rawQuery("SELECT w.*,p.name partyName FROM works w JOIN parties p ON p.id=w.partyId$where ORDER BY w.id DESC",args.toTypedArray())
-        while(c.moveToNext()){
-            val id=c.getLong(c.getColumnIndexOrThrow("id"))
-            out.add(mapOf("id" to id,"workNo" to c.getString(c.getColumnIndexOrThrow("workNo")),"partyName" to c.getString(c.getColumnIndexOrThrow("partyName")),
-                "receivedDate" to c.getString(c.getColumnIndexOrThrow("receivedDate")),"itemName" to (c.getString(c.getColumnIndexOrThrow("itemName"))?:""),
-                "workType" to (c.getString(c.getColumnIndexOrThrow("workType"))?:""),"goldReceived" to c.getDouble(c.getColumnIndexOrThrow("goldReceived")),
-                "goldReturned" to c.getDouble(c.getColumnIndexOrThrow("goldReturned")),"totalCharges" to c.getDouble(c.getColumnIndexOrThrow("totalCharges")),
-                "status" to c.getString(c.getColumnIndexOrThrow("status")),"balance" to balance(id)))
+        val out=mutableListOf<Map<String,Any>>()
+        val clauses=mutableListOf<String>(); val args=mutableListOf<String>()
+        if(search.isNotBlank()){
+            clauses.add("(w.workNo LIKE ? OR p.name LIKE ? OR w.itemName LIKE ? OR w.description LIKE ? OR CAST(w.totalCharges AS TEXT) LIKE ? OR CAST(w.labourAmount AS TEXT) LIKE ?)")
+            repeat(6){args.add("%$search%")}
         }
-        c.close();return out
+        if(status.isNotBlank()){ clauses.add("w.status=?"); args.add(status) }
+        val where=if(clauses.isEmpty()) "" else " WHERE "+clauses.joinToString(" AND ")
+        // Calculate paid/balance in the same query. The old implementation performed
+        // an extra SELECT for every row, which made scrolling and searching lag badly.
+        val sql="""SELECT w.*, p.name partyName,
+            COALESCE((SELECT SUM(amount) FROM payments pay WHERE pay.workId=w.id),0) paidAmount,
+            w.totalCharges-COALESCE((SELECT SUM(amount) FROM payments pay2 WHERE pay2.workId=w.id),0) balanceAmount
+            FROM works w JOIN parties p ON p.id=w.partyId$where ORDER BY w.id DESC"""
+        val c=readableDatabase.rawQuery(sql,args.toTypedArray())
+        while(c.moveToNext()){
+            out.add(mapOf(
+                "id" to c.getLong(c.getColumnIndexOrThrow("id")),
+                "workNo" to c.getString(c.getColumnIndexOrThrow("workNo")),
+                "partyName" to c.getString(c.getColumnIndexOrThrow("partyName")),
+                "receivedDate" to c.getString(c.getColumnIndexOrThrow("receivedDate")),
+                "itemName" to (c.getString(c.getColumnIndexOrThrow("itemName"))?:""),
+                "workType" to (c.getString(c.getColumnIndexOrThrow("workType"))?:""),
+                "goldReceived" to c.getDouble(c.getColumnIndexOrThrow("goldReceived")),
+                "goldReturned" to c.getDouble(c.getColumnIndexOrThrow("goldReturned")),
+                "totalCharges" to c.getDouble(c.getColumnIndexOrThrow("totalCharges")),
+                "status" to c.getString(c.getColumnIndexOrThrow("status")),
+                "balance" to c.getDouble(c.getColumnIndexOrThrow("balanceAmount")),
+                "paid" to c.getDouble(c.getColumnIndexOrThrow("paidAmount"))
+            ))
+        }
+        c.close(); return out
     }
 
     fun work(id:Long):Map<String,Any?>? {
