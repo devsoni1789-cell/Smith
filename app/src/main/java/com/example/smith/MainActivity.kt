@@ -1,6 +1,6 @@
 package com.example.smith
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.content.ContentValues
 import android.content.Intent
 import android.os.Bundle
@@ -10,6 +10,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,7 +44,7 @@ private val Green = Color(0xFF2E7D5B)
 private val Orange = Color(0xFFB86B24)
 private val Red = Color(0xFFB5443C)
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var db: DbHelper
     private var pendingExport = ""
 
@@ -467,7 +469,7 @@ class MainActivity : Activity() {
         var notes by remember { mutableStateOf("") }
         var type by remember { mutableStateOf("Jewellery Shop") }
         Scaffold(containerColor = Cream, topBar = { SimpleTopBar("Add Shop / Customer", onBack) }) { pad ->
-            Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Save once. Reuse every time.", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Shop / Customer name *") }, singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -509,7 +511,7 @@ class MainActivity : Activity() {
         var showPartyPicker by remember { mutableStateOf(false) }
         var showTypePicker by remember { mutableStateOf(false) }
 
-        if (showPartyPicker) ChoiceDialog("Select shop / customer", parties.map { it["name"].toString() }, { showPartyPicker = false }) { i ->
+        if (showPartyPicker) ChoiceDialog("Select shop / customer", parties.map { it["name"].toString() }, { showPartyPicker = false }) { i, _ ->
             partyId = parties[i]["id"] as Long; partyName = parties[i]["name"].toString()
         }
         if (showTypePicker) ChoiceDialog("What work?", listOf("Repair","New Jewellery Making","Polish","Resize","Stone Setting","Engraving","Cleaning","Melting","Other"), { showTypePicker = false }) { _, value -> type = value }
@@ -522,9 +524,9 @@ class MainActivity : Activity() {
             } else {
                 Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SectionTitle("1  Who gave the work?")
-                    SelectField(partyName.ifBlank { "Select shop / customer" }) { showPartyPicker = true }
+                    SelectField(partyName.ifBlank { "Select shop / customer" }, onClick = { showPartyPicker = true })
                     SectionTitle("2  What work?")
-                    SelectField(type) { showTypePicker = true }
+                    SelectField(type, onClick = { showTypePicker = true })
                     OutlinedTextField(item, { item = it }, Modifier.fillMaxWidth(), label = { Text("Item name *") }, singleLine = true, placeholder = { Text("Ring, chain, bracelet…") })
                     OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("Short description (optional)") })
                     SectionTitle("3  Gold")
@@ -533,7 +535,7 @@ class MainActivity : Activity() {
                         NumberField(returned, { returned = it }, "Gold returned (g)", Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SelectField(purity, {}, Modifier.weight(1f))
+                        SelectField(purity, onClick = {}, modifier = Modifier.weight(1f))
                         OutlinedTextField(date, { date = it }, Modifier.weight(1f), label = { Text("Received date") }, singleLine = true)
                     }
                     SectionTitle("4  Labour & charges")
@@ -671,7 +673,7 @@ class MainActivity : Activity() {
             item { Text("Work status", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
             listOf("Received","In Progress","Ready","Delivered","Cancelled").forEach { s ->
                 val count = works.count { it["status"] == s }
-                ListItem(headlineContent = { Text(s) }, trailingContent = { Text(count.toString(), fontWeight = FontWeight.Bold) })
+                item { ListItem(headlineContent = { Text(s) }, trailingContent = { Text(count.toString(), fontWeight = FontWeight.Bold) }) }
             }
         }
     }
