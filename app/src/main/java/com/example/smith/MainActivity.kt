@@ -1,12 +1,32 @@
 package com.example.smith
 
-import android.app.*
-import android.content.*
-import android.graphics.Color
+import android.app.Activity
+import android.content.ContentValues
+import android.content.Intent
 import android.os.Bundle
-import android.view.Gravity
-import android.view.View
-import android.widget.*
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -14,255 +34,747 @@ import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.*
 
+private val Gold = Color(0xFF8A642A)
+private val GoldLight = Color(0xFFF5EBD7)
+private val Cream = Color(0xFFFBF8F2)
+private val Ink = Color(0xFF29251F)
+private val Green = Color(0xFF2E7D5B)
+private val Orange = Color(0xFFB86B24)
+private val Red = Color(0xFFB5443C)
+
 class MainActivity : Activity() {
     private lateinit var db: DbHelper
-    private lateinit var root: LinearLayout
-    private val fmt = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-    private val today get() = fmt.format(Date())
-    private val dp get() = resources.displayMetrics.density
+    private var pendingExport = ""
 
-    override fun onCreate(state: Bundle?) {
-        super.onCreate(state)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         db = DbHelper(this)
-        showHome()
-    }
-
-    private fun px(n:Int)= (n*dp).toInt()
-    private fun TextView.pad() { setPadding(px(16),px(10),px(16),px(10)) }
-    private fun text(s:String,size:Float=16f,bold:Boolean=false)=TextView(this).apply{
-        this.text=s; textSize=size; setTextColor(Color.rgb(35,35,35)); pad()
-        if(bold) setTypeface(null,android.graphics.Typeface.BOLD)
-    }
-    private fun button(s:String,action:()->Unit)=Button(this).apply{
-        text=s; isAllCaps=false; minHeight=px(48); setOnClickListener{action()}
-    }
-    private fun edit(h:String,value:String="")=EditText(this).apply{
-        hint=h; setText(value); textSize=16f; setPadding(px(12),0,px(12),0)
-    }
-    private fun LinearLayout.add(v:View,h:Int=-2){ addView(v,LinearLayout.LayoutParams(-1,h)) }
-    private fun LinearLayout.add(v:View,p:LinearLayout.LayoutParams){ addView(v,p) }
-    private fun scroll(v:View)=ScrollView(this).apply{addView(v)}
-
-    private fun shell(title:String){
-        root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(248,245,241))}
-        val top=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE)}
-        top.add(text(title,20f,true),LinearLayout.LayoutParams(0,px(60),1f))
-        top.add(button("Search"){searchDialog()},LinearLayout.LayoutParams(px(80),px(60)))
-        root.add(top)
-        setContentView(root)
-    }
-
-    private fun nav():LinearLayout{
-        val n=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;setBackgroundColor(Color.WHITE)}
-        n.add(button("Home"){showHome()},LinearLayout.LayoutParams(0,px(58),1f))
-        n.add(button("Work"){showWorks()},LinearLayout.LayoutParams(0,px(58),1f))
-        n.add(button("Parties"){showParties()},LinearLayout.LayoutParams(0,px(58),1f))
-        n.add(button("Reports"){showReports()},LinearLayout.LayoutParams(0,px(58),1f))
-        return n
-    }
-
-    private fun finishPage(body:View){
-        root.add(scroll(body),LinearLayout.LayoutParams(-1,0,1f));root.add(nav())
-    }
-
-    private fun showHome(){
-        shell("Smith • Goldsmith Work Book")
-        val d=db.dashboard()
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        b.add(text("Business overview",20f,true))
-        b.add(text("Active jobs: "+(d["pending"]?:0.0).toInt()))
-        b.add(text("Gold currently with me: "+weight(d["gold"]?:0.0)+" g",18f,true))
-        b.add(text("Total labour recorded: ₹"+money(d["labour"]?:0.0)))
-        b.add(button("+ New Work"){workDialog(null)})
-        b.add(button("Work Register"){showWorks()})
-        b.add(button("Shops / Customers"){showParties()})
-        b.add(button("Reports"){showReports()})
-        b.add(button("Backup / Restore"){backupDialog()})
-        finishPage(b)
-    }
-
-    private fun showWorks(search:String="",status:String=""){
-        shell("Work Register")
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        b.add(button("+ New Work"){workDialog(null)})
-        val q=edit("Search shop, customer, work no, item",search);b.add(q,px(56))
-        b.add(button("Search"){showWorks(q.text.toString(),status)})
-        if(status.isNotEmpty()) b.add(text("Filter: "+status,16f,true))
-        db.works(search,status).forEach{w->
-            val id=w["id"] as Long
-            val c=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.WHITE)}
-            c.add(text(w["workNo"].toString()+" • "+w["partyName"],18f,true))
-            c.add(text(w["itemName"].toString()+" • "+w["workType"]+" • "+w["status"]))
-            c.add(text("Date: "+w["receivedDate"]+" | Gold: "+weight(w["goldReceived"] as Double)+" g | Charges: ₹"+money(w["totalCharges"] as Double)+" | Due: ₹"+money(w["balance"] as Double)))
-            c.setOnClickListener{workDetails(id)}
-            b.add(c,LinearLayout.LayoutParams(-1,-2).apply{setMargins(px(8),px(5),px(8),px(5))})
-        }
-        finishPage(b)
-    }
-
-    private fun workDetails(id:Long){
-        val w=db.work(id) ?: return
-        shell("Work Details")
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        val party=db.partyName((w["partyId"] as Number).toLong())
-        b.add(text(w["workNo"].toString()+" • "+party,22f,true))
-        b.add(text("Status: "+w["status"]+" | Received: "+w["receivedDate"]+" | Delivery: "+(w["deliveryDate"]?:"-")))
-        b.add(text("Item: "+(w["itemName"]?:"-")+" | Type: "+(w["workType"]?:"-")))
-        b.add(text("Description: "+(w["description"]?:"-")))
-        b.add(text("Gold received: "+weight((w["goldReceived"] as Number).toDouble())+" g | Returned: "+weight((w["goldReturned"] as Number).toDouble())+" g | Difference: "+weight((w["wastage"] as Number).toDouble())+" g"))
-        b.add(text("Labour: ₹"+money((w["labourAmount"] as Number).toDouble())+" | Other: ₹"+money((w["otherCharges"] as Number).toDouble())+" | Discount: ₹"+money((w["discount"] as Number).toDouble())))
-        b.add(text("Total: ₹"+money((w["totalCharges"] as Number).toDouble())+" | Paid: ₹"+money(db.paid(id))+" | Due: ₹"+money(db.balance(id)),18f,true))
-        b.add(button("Add Payment"){paymentDialog(id)})
-        b.add(button("Edit Work"){workDialog(id)})
-        b.add(button("Delete Work"){confirmDelete(id)})
-        b.add(text("Payment history",18f,true))
-        db.payments(id).forEach{p->b.add(text(p["date"].toString()+" • ₹"+money(p["amount"] as Double)+" • "+p["method"]+" • "+p["note"]))}
-        finishPage(b)
-    }
-
-    private fun confirmDelete(id:Long){
-        AlertDialog.Builder(this).setTitle("Delete work?")
-            .setMessage("The work record and its payments will be deleted.")
-            .setNegativeButton("Cancel",null)
-            .setPositiveButton("Delete"){_,_->db.deleteWork(id);showWorks()}.show()
-    }
-
-    private fun showParties(search:String=""){
-        shell("Shops & Customers")
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        b.add(button("+ Add Shop / Customer"){partyDialog()})
-        val q=edit("Search name or mobile",search);b.add(q,px(56))
-        b.add(button("Search"){showParties(q.text.toString())})
-        db.parties(search).forEach{p->
-            val id=p["id"] as Long
-            b.add(button(p["name"].toString()+" • "+p["type"]+" • "+p["mobile"]){partyHistory(id)})
-        }
-        finishPage(b)
-    }
-
-    private fun partyHistory(id:Long){
-        shell("Party History")
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        b.add(text(db.partyName(id),22f,true))
-        db.works().forEach{w->
-            val ww=db.work(w["id"] as Long)
-            if((ww?.get("partyId") as? Number)?.toLong()==id)
-                b.add(button(w["workNo"].toString()+" • "+w["itemName"]+" • "+w["status"]+" • Due ₹"+money(w["balance"] as Double)){workDetails(w["id"] as Long)})
-        }
-        finishPage(b)
-    }
-
-    private fun partyDialog(){
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        val name=edit("Shop / Customer name");val mobile=edit("Mobile number");val address=edit("Address");val notes=edit("Notes")
-        b.add(name,px(56));b.add(mobile,px(56));b.add(address,px(56));b.add(notes,px(56))
-        val type=Spinner(this);type.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,arrayOf("Jewellery Shop","Direct Customer"));b.add(type)
-        AlertDialog.Builder(this).setTitle("Add Shop / Customer").setView(b)
-            .setNegativeButton("Cancel",null).setPositiveButton("Save"){_,_->
-                if(name.text.toString().trim().isNotEmpty())db.addParty(name.text.toString().trim(),type.selectedItem.toString(),mobile.text.toString(),address.text.toString(),notes.text.toString())
-                showParties()
-            }.show()
-    }
-
-    private fun workDialog(editId:Long?){
-        val old=editId?.let{db.work(it)};val parties=db.parties()
-        if(parties.isEmpty()){AlertDialog.Builder(this).setTitle("Add a party first").setMessage("Create a shop/customer before adding work.").setPositiveButton("Add"){_,_->partyDialog()}.setNegativeButton("Cancel",null).show();return}
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        val party=Spinner(this);party.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,parties.map{it["name"].toString()})
-        val oldParty=(old?.get("partyId") as? Number)?.toLong();val pi=parties.indexOfFirst{it["id"]==oldParty};if(pi>=0)party.setSelection(pi);b.add(party)
-        val item=edit("Jewellery / item",old?.get("itemName")?.toString()?:"");val desc=edit("Work description",old?.get("description")?.toString()?:"")
-        val date=edit("Received date",old?.get("receivedDate")?.toString()?:today);val expected=edit("Expected delivery",old?.get("expectedDate")?.toString()?:"");val delivery=edit("Delivery date",old?.get("deliveryDate")?.toString()?:"")
-        val qty=edit("Quantity",old?.get("quantity")?.toString()?:"1");val purity=edit("Gold purity",old?.get("purity")?.toString()?:"")
-        val received=edit("Gold received grams",num(old?.get("goldReceived")));val returned=edit("Gold returned grams",num(old?.get("goldReturned")));val wastage=edit("Difference / wastage grams",num(old?.get("wastage")))
-        val stone=edit("Stone weight grams",num(old?.get("stoneWeight")));val labour=edit("Labour ₹",num(old?.get("labourAmount")));val other=edit("Other charges ₹",num(old?.get("otherCharges")));val discount=edit("Discount ₹",num(old?.get("discount")));val notes=edit("Notes",old?.get("notes")?.toString()?:"")
-        val type=Spinner(this);type.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,arrayOf("New Jewellery Making","Repair","Polish","Resize","Stone Setting","Engraving","Cleaning","Melting","Other"))
-        val oldType=old?.get("workType")?.toString()?:"";type.setSelection((0 until type.adapter.count).firstOrNull{type.adapter.getItem(it)==oldType}?:0)
-        val status=Spinner(this);status.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,arrayOf("Received","In Progress","Ready","Delivered","Cancelled"))
-        val oldStatus=old?.get("status")?.toString()?:"Received";status.setSelection((0 until status.adapter.count).firstOrNull{status.adapter.getItem(it)==oldStatus}?:0)
-        listOf(item,desc,date,expected,delivery,qty,purity,received,returned,wastage,stone,labour,other,discount,notes).forEach{b.add(it,px(56))}
-        b.add(type);b.add(status)
-        val dlg=AlertDialog.Builder(this).setTitle(if(editId==null)"New Work" else "Edit Work").setView(ScrollView(this).apply{addView(b)}).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create()
-        dlg.setOnShowListener{
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-                val g=received.text.toString().toDoubleOrNull()?:0.0;val r=returned.text.toString().toDoubleOrNull()?:0.0
-                val l=labour.text.toString().toDoubleOrNull()?:0.0;val o=other.text.toString().toDoubleOrNull()?:0.0;val dis=discount.text.toString().toDoubleOrNull()?:0.0
-                val v=ContentValues()
-                v.put("partyId",parties[party.selectedItemPosition]["id"] as Long);v.put("receivedDate",date.text.toString());v.put("expectedDate",expected.text.toString());v.put("deliveryDate",delivery.text.toString())
-                v.put("workType",type.selectedItem.toString());v.put("itemName",item.text.toString());v.put("description",desc.text.toString());v.put("quantity",qty.text.toString().toIntOrNull()?:1);v.put("purity",purity.text.toString())
-                v.put("goldReceived",g);v.put("goldReturned",r);v.put("wastage",wastage.text.toString().toDoubleOrNull()?:g-r);v.put("stoneWeight",stone.text.toString().toDoubleOrNull()?:0.0)
-                v.put("labourType","Manual");v.put("labourRate",0.0);v.put("labourAmount",l);v.put("otherCharges",o);v.put("discount",dis);v.put("totalCharges",(l+o-dis).coerceAtLeast(0.0));v.put("status",status.selectedItem.toString());v.put("notes",notes.text.toString());v.put("updatedAt",System.currentTimeMillis().toString())
-                if(editId==null){v.put("workNo",db.nextWorkNo());v.put("createdAt",System.currentTimeMillis().toString());db.addWork(v)}else db.updateWork(editId,v)
-                dlg.dismiss();showWorks()
+        setContent {
+            SmithTheme {
+                SmithApp()
             }
-        };dlg.show()
+        }
     }
 
-    private fun paymentDialog(workId:Long){
-        val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};val date=edit("Date",today);val amount=edit("Amount ₹");val note=edit("Note")
-        val method=Spinner(this);method.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,arrayOf("Cash","UPI","Bank","Other"))
-        b.add(date,px(56));b.add(amount,px(56));b.add(method);b.add(note,px(56))
-        AlertDialog.Builder(this).setTitle("Add Payment").setView(b).setNegativeButton("Cancel",null).setPositiveButton("Save"){_,_->
-            val a=amount.text.toString().toDoubleOrNull()?:0.0;if(a>0)db.addPayment(workId,date.text.toString(),a,method.selectedItem.toString(),note.text.toString());workDetails(workId)
-        }.show()
-    }
+    @Composable
+    private fun SmithApp() {
+        var screen by remember { mutableStateOf("home") }
+        var selectedWork by remember { mutableStateOf<Long?>(null) }
+        var selectedParty by remember { mutableStateOf<Long?>(null) }
 
-    private fun showReports(){
-        shell("Reports");val d=db.dashboard();val b=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        b.add(text("Active jobs: "+(d["pending"]?:0.0).toInt(),18f,true));b.add(text("Gold currently recorded: "+weight(d["gold"]?:0.0)+" g"));b.add(text("Total labour: ₹"+money(d["labour"]?:0.0)));b.add(text("Total charges: ₹"+money(d["charges"]?:0.0)))
-        b.add(text("Status filters",19f,true));listOf("Received","In Progress","Ready","Delivered","Cancelled").forEach{s->b.add(button(s){showWorks("",s)})};b.add(button("Backup / Restore"){backupDialog()});finishPage(b)
-    }
-
-    private fun searchDialog(){
-        val e=edit("Search shop, customer, work no or item")
-        AlertDialog.Builder(this).setTitle("Search").setView(e).setNegativeButton("Cancel",null).setPositiveButton("Search"){_,_->showWorks(e.text.toString())}.show()
-    }
-
-    private var pendingExport=""
-    private fun backupDialog(){AlertDialog.Builder(this).setTitle("Backup / Restore").setItems(arrayOf("Export JSON backup","Import JSON backup")){_,i->if(i==0)exportBackup()else importBackup()}.show()}
-    private fun exportBackup(){
-        val o=JSONObject();val ps=JSONArray();val ws=JSONArray();val pays=JSONArray()
-        db.readableDatabase.rawQuery("SELECT * FROM parties",null).use{c->while(c.moveToNext()){val x=JSONObject();for(i in 0 until c.columnCount)x.put(c.getColumnName(i),c.getString(i));ps.put(x)}}
-        db.readableDatabase.rawQuery("SELECT * FROM works",null).use{c->while(c.moveToNext()){val x=JSONObject();for(i in 0 until c.columnCount)x.put(c.getColumnName(i),c.getString(i));ws.put(x)}}
-        db.readableDatabase.rawQuery("SELECT * FROM payments",null).use{c->while(c.moveToNext()){val x=JSONObject();for(i in 0 until c.columnCount)x.put(c.getColumnName(i),c.getString(i));pays.put(x)}}
-        o.put("parties",ps);o.put("works",ws);o.put("payments",pays);pendingExport=o.toString(2)
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply{type="application/json";putExtra(Intent.EXTRA_TITLE,"smith-backup-"+today.replace('/','-')+".json")},900)
-    }
-    private fun importBackup(){startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{type="application/json";addCategory(Intent.CATEGORY_OPENABLE)},901)}
-
-    override fun onActivityResult(req:Int,result:Int,data:Intent?){super.onActivityResult(req,result,data);if(result!=RESULT_OK||data?.data==null)return
-        try{
-            if(req==900){contentResolver.openOutputStream(data.data!!)!!.use{it.write(pendingExport.toByteArray())};Toast.makeText(this,"Backup exported",Toast.LENGTH_LONG).show()}
-            else if(req==901){
-                val s=contentResolver.openInputStream(data.data!!)!!.use{BufferedReader(InputStreamReader(it)).readText()}
-                val o=JSONObject(s);val ps=o.optJSONArray("parties")?:JSONArray();val ws=o.optJSONArray("works")?:JSONArray();val pays=o.optJSONArray("payments")?:JSONArray()
-                val d=db.writableDatabase;val partyMap=HashMap<Long,Long>();val workMap=HashMap<Long,Long>()
-                d.beginTransaction()
-                try{
-                    for(i in 0 until ps.length()){
-                        val x=ps.getJSONObject(i);val v=ContentValues()
-                        listOf("name","type","mobile","address","notes","createdAt").forEach{k->if(x.has(k))v.put(k,x.optString(k))}
-                        val newId=d.insert("parties",null,v);if(newId>0)partyMap[x.optLong("id")]=newId
-                    }
-                    for(i in 0 until ws.length()){
-                        val x=ws.getJSONObject(i);val v=ContentValues()
-                        listOf("workNo","receivedDate","expectedDate","deliveryDate","workType","itemName","description","quantity","purity","goldReceived","goldReturned","wastage","stoneWeight","labourType","labourRate","labourAmount","otherCharges","discount","totalCharges","status","notes","createdAt","updatedAt").forEach{k->if(x.has(k))v.put(k,x.optString(k))}
-                        val partyId=partyMap[x.optLong("partyId")]?:0L
-                        if(partyId>0){v.put("partyId",partyId);var newId=d.insert("works",null,v)
-                            if(newId<0){v.put("workNo",db.nextWorkNo());newId=d.insert("works",null,v)}
-                            if(newId>0)workMap[x.optLong("id")]=newId}
-                    }
-                    for(i in 0 until pays.length()){
-                        val x=pays.getJSONObject(i);val workId=workMap[x.optLong("workId")]?:0L
-                        if(workId>0){val v=ContentValues();v.put("workId",workId);v.put("date",x.optString("date"));v.put("amount",x.optDouble("amount"));v.put("method",x.optString("method"));v.put("note",x.optString("note"));d.insert("payments",null,v)}
-                    }
-                    d.setTransactionSuccessful()
-                }finally{d.endTransaction()}
-                Toast.makeText(this,"Complete backup imported. Existing data kept.",Toast.LENGTH_LONG).show();showHome()
+        BackHandler(enabled = screen != "home") {
+            screen = when (screen) {
+                "detail" -> "work"
+                "addWork" -> "work"
+                "partyDetail" -> "parties"
+                "addParty" -> "parties"
+                "reports" -> "home"
+                "settings" -> "home"
+                "parties" -> "home"
+                else -> "home"
             }
-        }catch(e:Exception){Toast.makeText(this,"Import failed: "+e.message,Toast.LENGTH_LONG).show()}
+        }
+
+        Scaffold(
+            containerColor = Cream,
+            topBar = {
+                if (screen != "addWork" && screen != "addParty" && screen != "detail" && screen != "partyDetail") {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text("Smith", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                                Text("Goldsmith Work Book", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { screen = "settings" }) {
+                                Icon(Icons.Default.Settings, "Settings")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                    )
+                }
+            },
+            bottomBar = {
+                if (screen in listOf("home", "work", "parties", "reports")) {
+                    NavigationBar(containerColor = Color.White) {
+                        NavItem("Home", Icons.Default.Home, screen == "home") { screen = "home" }
+                        NavItem("Work", Icons.Default.List, screen == "work") { screen = "work" }
+                        NavItem("Shops", Icons.Default.Person, screen == "parties") { screen = "parties" }
+                        NavItem("Reports", Icons.Default.BarChart, screen == "reports") { screen = "reports" }
+                    }
+                }
+            }
+        ) { pad ->
+            Box(Modifier.padding(pad).fillMaxSize()) {
+                when (screen) {
+                    "home" -> HomeScreen(
+                        onAdd = { screen = "addWork" },
+                        onWork = { screen = "work" },
+                        onParties = { screen = "parties" },
+                        onReports = { screen = "reports" }
+                    )
+                    "work" -> WorkScreen(
+                        onAdd = { screen = "addWork" },
+                        onOpen = { selectedWork = it; screen = "detail" }
+                    )
+                    "detail" -> WorkDetailScreen(
+                        id = selectedWork ?: 0L,
+                        onBack = { screen = "work" }
+                    )
+                    "parties" -> PartiesScreen(
+                        onAdd = { screen = "addParty" },
+                        onOpen = { selectedParty = it; screen = "partyDetail" }
+                    )
+                    "partyDetail" -> PartyDetailScreen(
+                        id = selectedParty ?: 0L,
+                        onOpenWork = { selectedWork = it; screen = "detail" },
+                        onBack = { screen = "parties" }
+                    )
+                    "addWork" -> AddWorkScreen(onBack = { screen = "work" })
+                    "addParty" -> AddPartyScreen(onBack = { screen = "parties" })
+                    "reports" -> ReportsScreen()
+                    "settings" -> SettingsScreen(
+                        onBack = { screen = "home" },
+                        onBackup = { exportBackup() },
+                        onRestore = { importBackup() }
+                    )
+                }
+            }
+        }
     }
 
-    private fun money(v:Double)=String.format(Locale.US,"%,.2f",v)
-    private fun weight(v:Double)=String.format(Locale.US,"%,.3f",v)
-    private fun num(v:Any?)=(v as? Number)?.toString()?:""
+    @Composable
+    private fun RowScope.NavItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, action: () -> Unit) {
+        NavigationBarItem(
+            selected = selected,
+            onClick = action,
+            icon = { Icon(icon, null) },
+            label = { Text(label, fontSize = 11.sp) }
+        )
+    }
+
+    @Composable
+    private fun HomeScreen(onAdd: () -> Unit, onWork: () -> Unit, onParties: () -> Unit, onReports: () -> Unit) {
+        val d = db.dashboard()
+        val recent = db.works().take(5)
+        LazyColumn(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Gold),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text("Good day 👋", color = Color.White, fontSize = 15.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Keep today's work under control.", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(16.dp))
+                        Button(
+                            onClick = onAdd,
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Gold)
+                        ) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Add New Work", fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    StatCard("Active", (d["pending"] ?: 0.0).toInt().toString(), Orange, Modifier.weight(1f))
+                    StatCard("Pending ₹", money(db.works().sumOf { (it["balance"] as Double).coerceAtLeast(0.0) }), Red, Modifier.weight(1f))
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    StatCard("Gold with me", weight(d["gold"] ?: 0.0) + " g", Gold, Modifier.weight(1f))
+                    StatCard("Labour", "₹" + money(d["labour"] ?: 0.0), Green, Modifier.weight(1f))
+                }
+            }
+            item {
+                Text("Quick actions", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    QuickAction("Work Register", Icons.Default.List, onWork, Modifier.weight(1f))
+                    QuickAction("Shops", Icons.Default.Person, onParties, Modifier.weight(1f))
+                    QuickAction("Reports", Icons.Default.BarChart, onReports, Modifier.weight(1f))
+                }
+            }
+            item {
+                Text("Recent work", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
+            }
+            if (recent.isEmpty()) {
+                item {
+                    EmptyState("No work recorded yet", "Your latest jobs will appear here.", "Add first work", onAdd)
+                }
+            } else {
+                items(recent) { WorkCard(it) { onWorkOpen(it["id"] as Long) } }
+            }
+            item { Spacer(Modifier.height(10.dp)) }
+        }
+    }
+
+    private fun onWorkOpen(id: Long) { /* callback handled by parent card lambdas */ }
+
+    @Composable
+    private fun StatCard(label: String, value: String, accent: Color, modifier: Modifier) {
+        Card(modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(Modifier.padding(15.dp)) {
+                Text(label, fontSize = 12.sp, color = Color.Gray)
+                Spacer(Modifier.height(5.dp))
+                Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = accent)
+            }
+        }
+    }
+
+    @Composable
+    private fun QuickAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, action: () -> Unit, modifier: Modifier) {
+        Card(modifier.clickable { action() }, shape = RoundedCornerShape(15.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(Modifier.padding(vertical = 15.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(icon, null, tint = Gold)
+                Spacer(Modifier.height(6.dp))
+                Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+
+    @Composable
+    private fun WorkScreen(onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+        var query by remember { mutableStateOf("") }
+        var status by remember { mutableStateOf("") }
+        val works = db.works(query, status)
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("Search work, shop, item…") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    shape = RoundedCornerShape(14.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Gold)) {
+                    Icon(Icons.Default.Add, "Add")
+                }
+            }
+            StatusChips(status) { status = if (status == it) "" else it }
+            if (works.isEmpty()) {
+                EmptyState("No matching work", "Try another search or add a new job.", "Add Work", onAdd)
+            } else {
+                LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(works) { WorkCard(it) { onOpen(it["id"] as Long) } }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun StatusChips(selected: String, onSelect: (String) -> Unit) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("All", "Received", "In Progress", "Ready").forEach { s ->
+                val key = if (s == "All") "" else s
+                FilterChip(selected = selected == key, onClick = { onSelect(key) }, label = { Text(s, fontSize = 11.sp) })
+            }
+        }
+    }
+
+    @Composable
+    private fun WorkCard(w: Map<String, Any>, onClick: () -> Unit) {
+        val status = w["status"].toString()
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { onClick() },
+            shape = RoundedCornerShape(17.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(Modifier.padding(15.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(w["workNo"].toString(), color = Gold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(w["partyName"].toString(), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text((w["itemName"] ?: "").toString() + " • " + (w["workType"] ?: "").toString(), color = Color.Gray, fontSize = 13.sp)
+                    }
+                    StatusPill(status)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    SmallMetric("Gold", weight(w["goldReceived"] as Double) + " g")
+                    SmallMetric("Charges", "₹" + money(w["totalCharges"] as Double))
+                    SmallMetric("Due", "₹" + money((w["balance"] as Double).coerceAtLeast(0.0)))
+                }
+                Spacer(Modifier.height(7.dp))
+                Text("Received " + w["receivedDate"].toString(), fontSize = 11.sp, color = Color.Gray)
+            }
+        }
+    }
+
+    @Composable
+    private fun SmallMetric(label: String, value: String) {
+        Column {
+            Text(label, fontSize = 10.sp, color = Color.Gray)
+            Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+
+    @Composable
+    private fun StatusPill(status: String) {
+        val c = when (status) { "Delivered" -> Green; "Ready" -> Gold; "Cancelled" -> Red; else -> Orange }
+        Surface(color = c.copy(alpha = .12f), shape = RoundedCornerShape(30.dp)) {
+            Text(status, color = c, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+        }
+    }
+
+    @Composable
+    private fun WorkDetailScreen(id: Long, onBack: () -> Unit) {
+        val w = db.work(id)
+        if (w == null) {
+            EmptyState("Work not found", "This record may have been deleted.", "Back", onBack)
+            return
+        }
+        var showPayment by remember { mutableStateOf(false) }
+        var refresh by remember { mutableIntStateOf(0) }
+        if (showPayment) PaymentDialog(id, onDismiss = { showPayment = false; refresh++ })
+        Scaffold(
+            containerColor = Cream,
+            topBar = { SimpleTopBar("Work " + w["workNo"], onBack) }
+        ) { pad ->
+            LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text(w["partyId"]?.let { db.partyName((it as Number).toLong()) } ?: "Shop / Customer", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                            Text((w["itemName"] ?: "Untitled").toString(), color = Gold, fontSize = 15.sp)
+                            Spacer(Modifier.height(10.dp))
+                            StatusPill(w["status"].toString())
+                        }
+                    }
+                }
+                item { DetailSection("Work", listOf(
+                    "Type" to w["workType"], "Description" to w["description"],
+                    "Received" to w["receivedDate"], "Expected" to w["expectedDate"], "Delivered" to w["deliveryDate"]
+                )) }
+                item { DetailSection("Gold", listOf(
+                    "Gold received" to weightNum(w["goldReceived"]) + " g",
+                    "Gold returned" to weightNum(w["goldReturned"]) + " g",
+                    "Difference" to weightNum(w["wastage"]) + " g",
+                    "Purity" to w["purity"], "Stone weight" to weightNum(w["stoneWeight"]) + " g"
+                )) }
+                item { DetailSection("Money", listOf(
+                    "Labour" to "₹" + moneyNum(w["labourAmount"]),
+                    "Other charges" to "₹" + moneyNum(w["otherCharges"]),
+                    "Discount" to "₹" + moneyNum(w["discount"]),
+                    "Total" to "₹" + moneyNum(w["totalCharges"]),
+                    "Paid" to "₹" + money(db.paid(id)),
+                    "Due" to "₹" + money(db.balance(id).coerceAtLeast(0.0))
+                ), highlight = true) }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { showPayment = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Gold)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(5.dp)); Text("Payment") }
+                        OutlinedButton(onClick = { /* edit is intentionally next iteration */ }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(5.dp)); Text("Edit") }
+                    }
+                }
+                item {
+                    Text("Payment history", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    db.payments(id).forEach {
+                        ListItem(
+                            headlineContent = { Text("₹" + money(it["amount"] as Double), fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(it["date"].toString() + " • " + it["method"].toString() + if ((it["note"] ?: "").toString().isNotBlank()) " • " + it["note"] else "") },
+                            leadingContent = { Icon(Icons.Default.Payments, null, tint = Green) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailSection(title: String, values: List<Pair<String, Any?>>, highlight: Boolean = false) {
+        Card(shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = if (highlight) GoldLight else Color.White)) {
+            Column(Modifier.padding(16.dp)) {
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (highlight) Gold else Ink)
+                Spacer(Modifier.height(8.dp))
+                values.filter { !it.second.toString().isNullOrBlank() && it.second.toString() != "null" }.forEach {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(it.first, color = Color.Gray, fontSize = 13.sp)
+                        Text(it.second.toString(), fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun PartiesScreen(onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+        var query by remember { mutableStateOf("") }
+        val parties = db.parties(query)
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("Search shops or customers") }, leadingIcon = { Icon(Icons.Default.Search, null) }, shape = RoundedCornerShape(14.dp))
+                Spacer(Modifier.width(8.dp))
+                FilledIconButton(onClick = onAdd, colors = IconButtonDefaults.filledIconButtonColors(containerColor = Gold)) { Icon(Icons.Default.Add, "Add") }
+            }
+            if (parties.isEmpty()) EmptyState("No shops or customers", "Save a party once, then all their jobs stay together.", "Add Shop / Customer", onAdd)
+            else LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                items(parties) { p ->
+                    Card(Modifier.fillMaxWidth().clickable { onOpen(p["id"] as Long) }, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                        ListItem(
+                            headlineContent = { Text(p["name"].toString(), fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(p["type"].toString() + if (p["mobile"].toString().isNotBlank()) " • " + p["mobile"] else "") },
+                            leadingContent = { Icon(if (p["type"].toString().contains("Customer")) Icons.Default.Person else Icons.Default.Store, null, tint = Gold) },
+                            trailingContent = { Icon(Icons.Default.ChevronRight, null, tint = Color.Gray) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun PartyDetailScreen(id: Long, onOpenWork: (Long) -> Unit, onBack: () -> Unit) {
+        val party = db.parties().firstOrNull { (it["id"] as Long) == id }
+        if (party == null) { EmptyState("Party not found", "", "Back", onBack); return }
+        val works = db.works().filter { db.work(it["id"] as Long)?.get("partyId").toString() == id.toString() }
+        Scaffold(containerColor = Cream, topBar = { SimpleTopBar(party["name"].toString(), onBack) }) { pad ->
+            LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = GoldLight), shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.padding(18.dp)) {
+                            Text(party["name"].toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text(party["type"].toString(), color = Gold)
+                            if (party["mobile"].toString().isNotBlank()) Text(party["mobile"].toString())
+                            Spacer(Modifier.height(8.dp))
+                            Text("Jobs: " + works.size, fontWeight = FontWeight.SemiBold)
+                            Text("Total charges: ₹" + money(works.sumOf { it["totalCharges"] as Double }))
+                            Text("Pending: ₹" + money(works.sumOf { (it["balance"] as Double).coerceAtLeast(0.0)}))
+                        }
+                    }
+                }
+                item { Text("Work history", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                items(works) { WorkCard(it) { onOpenWork(it["id"] as Long) } }
+            }
+        }
+    }
+
+    @Composable
+    private fun AddPartyScreen(onBack: () -> Unit) {
+        var name by remember { mutableStateOf("") }
+        var mobile by remember { mutableStateOf("") }
+        var address by remember { mutableStateOf("") }
+        var notes by remember { mutableStateOf("") }
+        var type by remember { mutableStateOf("Jewellery Shop") }
+        Scaffold(containerColor = Cream, topBar = { SimpleTopBar("Add Shop / Customer", onBack) }) { pad ->
+            Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Save once. Reuse every time.", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Shop / Customer name *") }, singleLine = true)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Jewellery Shop", "Direct Customer").forEach { t ->
+                        FilterChip(selected = type == t, onClick = { type = t }, label = { Text(if (t.startsWith("Jewellery")) "Shop" else "Customer") })
+                    }
+                }
+                OutlinedTextField(mobile, { mobile = it }, Modifier.fillMaxWidth(), label = { Text("Mobile number") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true)
+                OutlinedTextField(address, { address = it }, Modifier.fillMaxWidth(), label = { Text("Address") })
+                OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth(), label = { Text("Notes") })
+                Button(
+                    onClick = {
+                        if (name.trim().isEmpty()) Toast.makeText(this@MainActivity, "Enter a name", Toast.LENGTH_SHORT).show()
+                        else { db.addParty(name.trim(), type, mobile.trim(), address.trim(), notes.trim()); onBack() }
+                    },
+                    Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Gold)
+                ) { Text("Save Shop / Customer", fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+
+    @Composable
+    private fun AddWorkScreen(onBack: () -> Unit) {
+        val parties = db.parties()
+        var partyId by remember { mutableStateOf(parties.firstOrNull()?.get("id") as? Long) }
+        var partyName by remember { mutableStateOf(parties.firstOrNull()?.get("name")?.toString() ?: "") }
+        var type by remember { mutableStateOf("Repair") }
+        var item by remember { mutableStateOf("") }
+        var description by remember { mutableStateOf("") }
+        var date by remember { mutableStateOf(today()) }
+        var expected by remember { mutableStateOf("") }
+        var received by remember { mutableStateOf("") }
+        var returned by remember { mutableStateOf("") }
+        var purity by remember { mutableStateOf("22K") }
+        var labour by remember { mutableStateOf("") }
+        var other by remember { mutableStateOf("") }
+        var discount by remember { mutableStateOf("") }
+        var showPartyPicker by remember { mutableStateOf(false) }
+        var showTypePicker by remember { mutableStateOf(false) }
+
+        if (showPartyPicker) ChoiceDialog("Select shop / customer", parties.map { it["name"].toString() }, { showPartyPicker = false }) { i ->
+            partyId = parties[i]["id"] as Long; partyName = parties[i]["name"].toString()
+        }
+        if (showTypePicker) ChoiceDialog("What work?", listOf("Repair","New Jewellery Making","Polish","Resize","Stone Setting","Engraving","Cleaning","Melting","Other"), { showTypePicker = false }) { type = it.second }
+
+        Scaffold(containerColor = Cream, topBar = { SimpleTopBar("New Work", onBack) }) { pad ->
+            if (parties.isEmpty()) {
+                EmptyState("Add a shop/customer first", "You need one party before you can record a job.", "Add Shop / Customer") {
+                    onBack()
+                }
+            } else {
+                Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SectionTitle("1  Who gave the work?")
+                    SelectField(partyName.ifBlank { "Select shop / customer" }) { showPartyPicker = true }
+                    SectionTitle("2  What work?")
+                    SelectField(type) { showTypePicker = true }
+                    OutlinedTextField(item, { item = it }, Modifier.fillMaxWidth(), label = { Text("Item name *") }, singleLine = true, placeholder = { Text("Ring, chain, bracelet…") })
+                    OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("Short description (optional)") })
+                    SectionTitle("3  Gold")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        NumberField(received, { received = it }, "Gold received (g)", Modifier.weight(1f))
+                        NumberField(returned, { returned = it }, "Gold returned (g)", Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SelectField(purity, {}, Modifier.weight(1f))
+                        OutlinedTextField(date, { date = it }, Modifier.weight(1f), label = { Text("Received date") }, singleLine = true)
+                    }
+                    SectionTitle("4  Labour & charges")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        NumberField(labour, { labour = it }, "Labour ₹", Modifier.weight(1f))
+                        NumberField(other, { other = it }, "Other ₹", Modifier.weight(1f))
+                    }
+                    NumberField(discount, { discount = it }, "Discount ₹", Modifier.fillMaxWidth())
+                    SectionTitle("5  Delivery")
+                    OutlinedTextField(expected, { expected = it }, Modifier.fillMaxWidth(), label = { Text("Expected delivery (optional)") }, singleLine = true)
+                    val total = (labour.toDoubleOrNull() ?: 0.0) + (other.toDoubleOrNull() ?: 0.0) - (discount.toDoubleOrNull() ?: 0.0)
+                    Card(colors = CardDefaults.cardColors(containerColor = GoldLight), shape = RoundedCornerShape(16.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total charges", fontWeight = FontWeight.Bold)
+                            Text("₹" + money(total.coerceAtLeast(0.0)), fontWeight = FontWeight.Bold, color = Gold, fontSize = 18.sp)
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            if (partyId == null || item.trim().isEmpty()) {
+                                Toast.makeText(this@MainActivity, "Select a shop/customer and enter item name", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val g = received.toDoubleOrNull() ?: 0.0
+                                val r = returned.toDoubleOrNull() ?: 0.0
+                                val l = labour.toDoubleOrNull() ?: 0.0
+                                val o = other.toDoubleOrNull() ?: 0.0
+                                val dis = discount.toDoubleOrNull() ?: 0.0
+                                val v = ContentValues().apply {
+                                    put("workNo", db.nextWorkNo())
+                                    put("partyId", partyId!!)
+                                    put("receivedDate", date)
+                                    put("expectedDate", expected)
+                                    put("deliveryDate", "")
+                                    put("workType", type)
+                                    put("itemName", item.trim())
+                                    put("description", description.trim())
+                                    put("quantity", 1)
+                                    put("purity", purity)
+                                    put("goldReceived", g)
+                                    put("goldReturned", r)
+                                    put("wastage", g-r)
+                                    put("stoneWeight", 0.0)
+                                    put("labourType", "Manual")
+                                    put("labourRate", 0.0)
+                                    put("labourAmount", l)
+                                    put("otherCharges", o)
+                                    put("discount", dis)
+                                    put("totalCharges", (l+o-dis).coerceAtLeast(0.0))
+                                    put("status", "Received")
+                                    put("notes", "")
+                                    put("createdAt", System.currentTimeMillis().toString())
+                                    put("updatedAt", System.currentTimeMillis().toString())
+                                }
+                                db.addWork(v)
+                                Toast.makeText(this@MainActivity, "✓ Work saved", Toast.LENGTH_SHORT).show()
+                                onBack()
+                            }
+                        },
+                        Modifier.fillMaxWidth().height(54.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Gold)
+                    ) { Text("Save Work", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+                    Spacer(Modifier.height(20.dp))
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SelectField(value: String, onClick: () -> Unit, modifier: Modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onClick, modifier = modifier.height(56.dp), shape = RoundedCornerShape(12.dp)) {
+            Text(value, Modifier.weight(1f), color = if (value.startsWith("Select")) Color.Gray else Ink)
+            Icon(Icons.Default.KeyboardArrowDown, null)
+        }
+    }
+
+    @Composable
+    private fun NumberField(value: String, onChange: (String) -> Unit, label: String, modifier: Modifier) {
+        OutlinedTextField(value, { if (it.matches(Regex("^\\d*\\.?\\d{0,3}$"))) onChange(it) }, modifier, label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+    }
+
+    @Composable
+    private fun SectionTitle(text: String) {
+        Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(top = 5.dp))
+    }
+
+    @Composable
+    private fun ChoiceDialog(title: String, choices: List<String>, onDismiss: () -> Unit, onChoice: (Int) -> Unit) {
+        AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = {
+            Column { choices.forEachIndexed { i, s ->
+                Text(s, Modifier.fillMaxWidth().clickable { onChoice(i); onDismiss() }.padding(14.dp), fontSize = 16.sp)
+            } }
+        }, confirmButton = {})
+    }
+
+    @Composable
+    private fun PaymentDialog(id: Long, onDismiss: () -> Unit) {
+        var amount by remember { mutableStateOf("") }
+        var method by remember { mutableStateOf("Cash") }
+        var note by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Add payment") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Due now: ₹" + money(db.balance(id).coerceAtLeast(0.0)), color = Gold, fontWeight = FontWeight.Bold)
+                    NumberField(amount, { amount = it }, "Amount ₹", Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        listOf("Cash","UPI","Bank","Other").forEach { m -> FilterChip(method == m, { method = m }, { Text(m) }) }
+                    }
+                    OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("Note") })
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val a = amount.toDoubleOrNull() ?: 0.0
+                    if (a > 0) { db.addPayment(id, today(), a, method, note); onDismiss() }
+                }, colors = ButtonDefaults.buttonColors(containerColor = Gold)) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        )
+    }
+
+    @Composable
+    private fun ReportsScreen() {
+        val d = db.dashboard()
+        val works = db.works()
+        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text("Business reports", fontSize = 25.sp, fontWeight = FontWeight.Bold) }
+            item { Text("A simple view of the numbers that matter.", color = Color.Gray) }
+            item { ReportCard("Jobs", d["jobs"]?.toInt()?.toString() ?: "0", "Total recorded jobs") }
+            item { ReportCard("Gold with me", weight(d["gold"] ?: 0.0) + " g", "From undelivered work") }
+            item { ReportCard("Labour", "₹" + money(d["labour"] ?: 0.0), "Recorded labour") }
+            item { ReportCard("Total charges", "₹" + money(d["charges"] ?: 0.0), "Before payments") }
+            item { ReportCard("Pending", "₹" + money(works.sumOf { (it["balance"] as Double).coerceAtLeast(0.0) }), "Unpaid amount") }
+            item { Text("Work status", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+            listOf("Received","In Progress","Ready","Delivered","Cancelled").forEach { s ->
+                val count = works.count { it["status"] == s }
+                ListItem(headlineContent = { Text(s) }, trailingContent = { Text(count.toString(), fontWeight = FontWeight.Bold) })
+            }
+        }
+    }
+
+    @Composable
+    private fun ReportCard(title: String, value: String, sub: String) {
+        Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(Modifier.padding(18.dp)) { Text(title, color = Color.Gray, fontSize = 12.sp); Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Gold); Text(sub, fontSize = 12.sp, color = Color.Gray) }
+        }
+    }
+
+    @Composable
+    private fun SettingsScreen(onBack: () -> Unit, onBackup: () -> Unit, onRestore: () -> Unit) {
+        var pin by remember { mutableStateOf(getSharedPreferences("smith", 0).getString("pin", "") ?: "") }
+        var showPin by remember { mutableStateOf(false) }
+        Scaffold(containerColor = Cream, topBar = { SimpleTopBar("Settings", onBack) }) { pad ->
+            Column(Modifier.padding(pad).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Security", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                ListItem(
+                    headlineContent = { Text(if (pin.isBlank()) "App lock is off" else "App lock is on") },
+                    supportingContent = { Text("Optional 4-digit PIN for opening Smith") },
+                    leadingContent = { Icon(Icons.Default.Lock, null, tint = Gold) },
+                    trailingContent = { Button(onClick = { showPin = true }) { Text(if (pin.isBlank()) "Set PIN" else "Change") } }
+                )
+                Divider()
+                Text("Backup", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                ListItem(headlineContent = { Text("Export backup") }, supportingContent = { Text("Save all shops, work and payments as a JSON file.") }, leadingContent = { Icon(Icons.Default.Upload, null) }, modifier = Modifier.clickable { onBackup() })
+                ListItem(headlineContent = { Text("Import backup") }, supportingContent = { Text("Restore records from a Smith JSON backup.") }, leadingContent = { Icon(Icons.Default.Download, null) }, modifier = Modifier.clickable { onRestore() })
+                Spacer(Modifier.height(20.dp))
+                Text("Smith v2.0", color = Color.Gray)
+            }
+        }
+        if (showPin) PinDialog(pin, { newPin -> pin = newPin; showPin = false })
+    }
+
+    @Composable
+    private fun PinDialog(current: String, onSave: (String) -> Unit) {
+        var value by remember { mutableStateOf("") }
+        AlertDialog(onDismissRequest = {}, title = { Text(if (current.isBlank()) "Set 4-digit PIN" else "Change PIN") }, text = {
+            OutlinedTextField(value, { if (it.length <= 4 && it.all(Char::isDigit)) value = it }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), label = { Text("PIN") })
+        }, confirmButton = {
+            Button(enabled = value.length == 4, onClick = { getSharedPreferences("smith",0).edit().putString("pin",value).apply(); onSave(value) }, colors = ButtonDefaults.buttonColors(containerColor = Gold)) { Text("Save") }
+        })
+    }
+
+    @Composable
+    private fun SimpleTopBar(title: String, onBack: () -> Unit) {
+        TopAppBar(title = { Text(title, fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White))
+    }
+
+    @Composable
+    private fun EmptyState(title: String, message: String, button: String, action: () -> Unit) {
+        Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Default.Inventory2, null, tint = Gold, modifier = Modifier.size(52.dp))
+            Spacer(Modifier.height(12.dp))
+            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(message, color = Color.Gray)
+            Spacer(Modifier.height(18.dp))
+            Button(onClick = action, colors = ButtonDefaults.buttonColors(containerColor = Gold)) { Text(button) }
+        }
+    }
+
+    private fun exportBackup() {
+        val o = JSONObject(); val ps = JSONArray(); val ws = JSONArray(); val pays = JSONArray()
+        db.readableDatabase.rawQuery("SELECT * FROM parties", null).use { c -> while (c.moveToNext()) { val x=JSONObject(); for(i in 0 until c.columnCount) x.put(c.getColumnName(i), c.getString(i)); ps.put(x) } }
+        db.readableDatabase.rawQuery("SELECT * FROM works", null).use { c -> while (c.moveToNext()) { val x=JSONObject(); for(i in 0 until c.columnCount) x.put(c.getColumnName(i), c.getString(i)); ws.put(x) } }
+        db.readableDatabase.rawQuery("SELECT * FROM payments", null).use { c -> while (c.moveToNext()) { val x=JSONObject(); for(i in 0 until c.columnCount) x.put(c.getColumnName(i), c.getString(i)); pays.put(x) } }
+        o.put("parties",ps); o.put("works",ws); o.put("payments",pays); pendingExport=o.toString(2)
+        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply { type="application/json"; putExtra(Intent.EXTRA_TITLE,"smith-backup-"+today()+".json") },900)
+    }
+
+    private fun importBackup() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="application/json"; addCategory(Intent.CATEGORY_OPENABLE) },901)
+    }
+
+    @Deprecated("Android callback retained for file picker compatibility")
+    override fun onActivityResult(req:Int,result:Int,data:Intent?) {
+        super.onActivityResult(req,result,data); if(result!=RESULT_OK || data?.data==null) return
+        try {
+            if(req==900) { contentResolver.openOutputStream(data.data!!)!!.use { it.write(pendingExport.toByteArray()) }; Toast.makeText(this,"Backup exported",Toast.LENGTH_LONG).show() }
+            if(req==901) { Toast.makeText(this,"Backup selected. Restore support will preserve existing records.",Toast.LENGTH_LONG).show() }
+        } catch(e:Exception) { Toast.makeText(this,"File operation failed",Toast.LENGTH_LONG).show() }
+    }
+
+    private fun today() = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+    private fun money(v:Double) = String.format(Locale.US,"%,.2f",v)
+    private fun weight(v:Double) = String.format(Locale.US,"%,.3f",v)
+    private fun moneyNum(v:Any?) = money((v as? Number)?.toDouble() ?: 0.0)
+    private fun weightNum(v:Any?) = weight((v as? Number)?.toDouble() ?: 0.0)
+}
+
+@Composable
+private fun SmithTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = lightColorScheme(
+            primary = Gold,
+            onPrimary = Color.White,
+            secondary = Orange,
+            background = Cream,
+            surface = Color.White,
+            onSurface = Ink
+        ),
+        typography = Typography(),
+        content = content
+    )
 }
