@@ -113,6 +113,7 @@ class MainActivity : ComponentActivity() {
             }
         ) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
+                key(screen + ":" + dataVersion) {
                 when (screen) {
                     "home" -> HomeScreen(
                         onAdd = { screen = "addWork" },
@@ -146,6 +147,7 @@ class MainActivity : ComponentActivity() {
                         onBackup = { exportBackup() },
                         onRestore = { importBackup() }
                     )
+                }
                 }
             }
         }
@@ -351,7 +353,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         var showPayment by remember { mutableStateOf(false) }
+        var showEdit by remember { mutableStateOf(false) }
         if (showPayment) PaymentDialog(id, onDismiss = { showPayment = false; refresh++ })
+        if (showEdit) WorkEditDialog(id, w, onDismiss = { showEdit = false }, onChanged = { showEdit = false; refresh++ })
         Scaffold(
             containerColor = Cream,
             topBar = { SimpleTopBar("Work " + w["workNo"], onBack) }
@@ -388,7 +392,7 @@ class MainActivity : ComponentActivity() {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         Button(onClick = { showPayment = true }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Gold)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(5.dp)); Text("Payment") }
-                        OutlinedButton(onClick = { /* edit is intentionally next iteration */ }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(5.dp)); Text("Edit") }
+                        OutlinedButton(onClick = { showEdit = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Edit, null); Spacer(Modifier.width(5.dp)); Text("Update") }
                     }
                 }
                 item {
@@ -402,6 +406,53 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun WorkEditDialog(id: Long, work: Map<String, Any?>, onDismiss: () -> Unit, onChanged: () -> Unit) {
+        var status by remember { mutableStateOf(work["status"]?.toString() ?: "Received") }
+        var deliveryDate by remember { mutableStateOf(work["deliveryDate"]?.toString() ?: "") }
+        var confirmDelete by remember { mutableStateOf(false) }
+
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("Delete this work?") },
+                text = { Text("This will permanently delete the work record and its payment history.") },
+                confirmButton = {
+                    Button(onClick = { db.deleteWork(id); confirmDelete = false; onChanged(); onDismiss() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Red)) { Text("Delete") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismiss,
+                title = { Text("Update work") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Status", fontWeight = FontWeight.Bold)
+                        listOf("Received","In Progress","Ready","Delivered","Cancelled").forEach { s ->
+                            FilterChip(selected = status == s, onClick = { status = s }, label = { Text(s) })
+                        }
+                        DateField("Delivery date", deliveryDate, { deliveryDate = it }, Modifier.fillMaxWidth())
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        val d = if (status == "Delivered" && deliveryDate.isBlank()) today() else deliveryDate
+                        db.updateWorkStatus(id, status, d)
+                        onChanged()
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Gold)) { Text("Save changes") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = Red) }
+                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                    }
+                }
+            )
         }
     }
 
