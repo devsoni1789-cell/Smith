@@ -57,7 +57,7 @@ class DbHelper(context: Context) : SQLiteOpenHelper(context, "smith.db", null, 1
 
     fun works(search:String="",status:String=""):List<Map<String,Any>> {
         val out=mutableListOf<Map<String,Any>>();val clauses=mutableListOf<String>();val args=mutableListOf<String>()
-        if(search.isNotBlank()){clauses.add("(w.workNo LIKE ? OR p.name LIKE ? OR w.itemName LIKE ? OR w.description LIKE ?)");repeat(4){args.add("%$search%")}}
+        if(search.isNotBlank()){clauses.add("(w.workNo LIKE ? OR p.name LIKE ? OR w.itemName LIKE ? OR w.description LIKE ? OR CAST(w.totalCharges AS TEXT) LIKE ? OR CAST(w.labourAmount AS TEXT) LIKE ?)");repeat(6){args.add("%$search%")}}
         if(status.isNotBlank()){clauses.add("w.status=?");args.add(status)}
         val where=if(clauses.isEmpty())"" else " WHERE "+clauses.joinToString(" AND ")
         val c=readableDatabase.rawQuery("SELECT w.*,p.name partyName FROM works w JOIN parties p ON p.id=w.partyId$where ORDER BY w.id DESC",args.toTypedArray())
