@@ -110,6 +110,7 @@ class MainActivity : Activity() {
                 when (screen) {
                     "home" -> HomeScreen(
                         onAdd = { screen = "addWork" },
+                        onOpenWork = { selectedWork = it; screen = "detail" },
                         onWork = { screen = "work" },
                         onParties = { screen = "parties" },
                         onReports = { screen = "reports" }
@@ -155,7 +156,7 @@ class MainActivity : Activity() {
     }
 
     @Composable
-    private fun HomeScreen(onAdd: () -> Unit, onWork: () -> Unit, onParties: () -> Unit, onReports: () -> Unit) {
+    private fun HomeScreen(onAdd: () -> Unit, onOpenWork: (Long) -> Unit, onWork: () -> Unit, onParties: () -> Unit, onReports: () -> Unit) {
         val d = db.dashboard()
         val recent = db.works().take(5)
         LazyColumn(
@@ -211,13 +212,12 @@ class MainActivity : Activity() {
                     EmptyState("No work recorded yet", "Your latest jobs will appear here.", "Add first work", onAdd)
                 }
             } else {
-                items(recent) { WorkCard(it) { onWorkOpen(it["id"] as Long) } }
+                items(recent) { WorkCard(it) { onOpenWork(it["id"] as Long) } }
             }
             item { Spacer(Modifier.height(10.dp)) }
         }
     }
 
-    private fun onWorkOpen(id: Long) { /* callback handled by parent card lambdas */ }
 
     @Composable
     private fun StatCard(label: String, value: String, accent: Color, modifier: Modifier) {
@@ -512,7 +512,7 @@ class MainActivity : Activity() {
         if (showPartyPicker) ChoiceDialog("Select shop / customer", parties.map { it["name"].toString() }, { showPartyPicker = false }) { i ->
             partyId = parties[i]["id"] as Long; partyName = parties[i]["name"].toString()
         }
-        if (showTypePicker) ChoiceDialog("What work?", listOf("Repair","New Jewellery Making","Polish","Resize","Stone Setting","Engraving","Cleaning","Melting","Other"), { showTypePicker = false }) { type = it.second }
+        if (showTypePicker) ChoiceDialog("What work?", listOf("Repair","New Jewellery Making","Polish","Resize","Stone Setting","Engraving","Cleaning","Melting","Other"), { showTypePicker = false }) { _, value -> type = value }
 
         Scaffold(containerColor = Cream, topBar = { SimpleTopBar("New Work", onBack) }) { pad ->
             if (parties.isEmpty()) {
@@ -620,10 +620,10 @@ class MainActivity : Activity() {
     }
 
     @Composable
-    private fun ChoiceDialog(title: String, choices: List<String>, onDismiss: () -> Unit, onChoice: (Int) -> Unit) {
+    private fun ChoiceDialog(title: String, choices: List<String>, onDismiss: () -> Unit, onChoice: (Int, String) -> Unit) {
         AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = {
             Column { choices.forEachIndexed { i, s ->
-                Text(s, Modifier.fillMaxWidth().clickable { onChoice(i); onDismiss() }.padding(14.dp), fontSize = 16.sp)
+                Text(s, Modifier.fillMaxWidth().clickable { onChoice(i, s); onDismiss() }.padding(14.dp), fontSize = 16.sp)
             } }
         }, confirmButton = {})
     }
