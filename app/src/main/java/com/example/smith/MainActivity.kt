@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import android.content.ContentValues
 import android.content.Intent
 import android.os.Bundle
+import android.app.DatePickerDialog
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
         var screen by remember { mutableStateOf("home") }
         var selectedWork by remember { mutableStateOf<Long?>(null) }
         var selectedParty by remember { mutableStateOf<Long?>(null) }
+        var dataVersion by remember { mutableIntStateOf(0) }
 
         BackHandler(enabled = screen != "home") {
             screen = when (screen) {
@@ -136,8 +138,8 @@ class MainActivity : ComponentActivity() {
                         onOpenWork = { selectedWork = it; screen = "detail" },
                         onBack = { screen = "parties" }
                     )
-                    "addWork" -> AddWorkScreen(onBack = { screen = "work" })
-                    "addParty" -> AddPartyScreen(onBack = { screen = "parties" })
+                    "addWork" -> AddWorkScreen(onBack = { screen = "work" }, onSaved = { dataVersion++ })
+                    "addParty" -> AddPartyScreen(onBack = { screen = "parties" }, onSaved = { dataVersion++ })
                     "reports" -> ReportsScreen()
                     "settings" -> SettingsScreen(
                         onBack = { screen = "home" },
@@ -161,8 +163,8 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun HomeScreen(onAdd: () -> Unit, onOpenWork: (Long) -> Unit, onWork: () -> Unit, onParties: () -> Unit, onReports: () -> Unit) {
-        val d = db.dashboard()
-        val recent = db.works().take(5)
+        val d = remember { db.dashboard() }
+        val recent = remember { db.works() }.take(5)
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -189,7 +191,7 @@ class MainActivity : ComponentActivity() {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     StatCard("Active", (d["pending"] ?: 0.0).toInt().toString(), Orange, Modifier.weight(1f))
-                    StatCard("Pending ₹", money(db.works().sumOf { (it["balance"] as Double).coerceAtLeast(0.0) }), Red, Modifier.weight(1f))
+                    StatCard("Pending ₹", money(recent.sumOf { (it["balance"] as Double).coerceAtLeast(0.0) }), Red, Modifier.weight(1f))
                 }
             }
             item {
@@ -249,7 +251,15 @@ class MainActivity : ComponentActivity() {
     private fun WorkScreen(onAdd: () -> Unit, onOpen: (Long) -> Unit) {
         var query by remember { mutableStateOf("") }
         var status by remember { mutableStateOf("") }
-        val works = db.works(query, status)
+        val allWorks = remember { db.works() }
+        val q = query.trim().lowercase()
+        val works = remember(query, status, allWorks) {
+            allWorks.filter { w ->
+                val matchesSearch = q.isBlank() || listOf(w["workNo"], w["partyName"], w["itemName"], w["workType"], w["receivedDate"]).any { it.toString().lowercase().contains(q) }
+                val matchesStatus = status.isBlank() || w["status"] == status
+                matchesSearch && matchesStatus
+            }
+        }
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -334,13 +344,13 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun WorkDetailScreen(id: Long, onBack: () -> Unit) {
-        val w = db.work(id)
+        var refresh by remember(id) { mutableIntStateOf(0) }
+        val w = remember(id, refresh) { db.work(id) }
         if (w == null) {
             EmptyState("Work not found", "This record may have been deleted.", "Back", onBack)
             return
         }
         var showPayment by remember { mutableStateOf(false) }
-        var refresh by remember { mutableIntStateOf(0) }
         if (showPayment) PaymentDialog(id, onDismiss = { showPayment = false; refresh++ })
         Scaffold(
             containerColor = Cream,
@@ -414,7 +424,11 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun PartiesScreen(onAdd: () -> Unit, onOpen: (Long) -> Unit) {
         var query by remember { mutableStateOf("") }
-        val parties = db.parties(query)
+        val allParties = remember { db.parties() }
+        val q = query.trim().lowercase()
+        val parties = remember(query, allParties) { allParties.filter { p ->
+            q.isBlank() || listOf(p["name"], p["mobile"], p["type"]).any { it.toString().lowercase().contains(q) }
+        } }
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("Search shops or customers") }, leadingIcon = { Icon(Icons.Default.Search, null) }, shape = RoundedCornerShape(14.dp))
@@ -464,7 +478,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun AddPartyScreen(onBack: () -> Unit) {
+    private fun AddPartyScreen(onBack: () -> Unit, onSaved: () -> Unit) {
         var name by remember { mutableStateOf("") }
         var mobile by remember { mutableStateOf("") }
         var address by remember { mutableStateOf("") }
@@ -485,7 +499,7 @@ class MainActivity : ComponentActivity() {
                 Button(
                     onClick = {
                         if (name.trim().isEmpty()) Toast.makeText(this@MainActivity, "Enter a name", Toast.LENGTH_SHORT).show()
-                        else { db.addParty(name.trim(), type, mobile.trim(), address.trim(), notes.trim()); onBack() }
+                        else { db.addParty(name.trim(), type, mobile.trim(), address.trim(), notes.trim()); onSaved(); onBack() }
                     },
                     Modifier.fillMaxWidth().height(52.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Gold)
@@ -495,8 +509,8 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun AddWorkScreen(onBack: () -> Unit) {
-        val parties = db.parties()
+    private fun AddWorkScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+        val parties = remember { db.parties() }
         var partyId by remember { mutableStateOf(parties.firstOrNull()?.get("id") as? Long) }
         var partyName by remember { mutableStateOf(parties.firstOrNull()?.get("name")?.toString() ?: "") }
         var type by remember { mutableStateOf("Repair") }
@@ -512,10 +526,12 @@ class MainActivity : ComponentActivity() {
         var discount by remember { mutableStateOf("") }
         var showPartyPicker by remember { mutableStateOf(false) }
         var showTypePicker by remember { mutableStateOf(false) }
+        var showPurityPicker by remember { mutableStateOf(false) }
 
         if (showPartyPicker) ChoiceDialog("Select shop / customer", parties.map { it["name"].toString() }, { showPartyPicker = false }) { i, _ ->
             partyId = parties[i]["id"] as Long; partyName = parties[i]["name"].toString()
         }
+        if (showPurityPicker) ChoiceDialog("Gold purity", listOf("24K","22K","20K","18K","14K","Other"), { showPurityPicker = false }) { _, value -> purity = value }
         if (showTypePicker) ChoiceDialog("What work?", listOf("Repair","New Jewellery Making","Polish","Resize","Stone Setting","Engraving","Cleaning","Melting","Other"), { showTypePicker = false }) { _, value -> type = value }
 
         Scaffold(containerColor = Cream, topBar = { SimpleTopBar("New Work", onBack) }) { pad ->
@@ -537,8 +553,8 @@ class MainActivity : ComponentActivity() {
                         NumberField(returned, { returned = it }, "Gold returned (g)", Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SelectField(purity, onClick = {}, modifier = Modifier.weight(1f))
-                        OutlinedTextField(date, { date = it }, Modifier.weight(1f), label = { Text("Received date") }, singleLine = true)
+                        SelectField(purity, onClick = { showPurityPicker = true }, modifier = Modifier.weight(1f))
+                        DateField("Received date", date, { date = it }, Modifier.weight(1f))
                     }
                     SectionTitle("4  Labour & charges")
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -547,7 +563,7 @@ class MainActivity : ComponentActivity() {
                     }
                     NumberField(discount, { discount = it }, "Discount ₹", Modifier.fillMaxWidth())
                     SectionTitle("5  Delivery")
-                    OutlinedTextField(expected, { expected = it }, Modifier.fillMaxWidth(), label = { Text("Expected delivery (optional)") }, singleLine = true)
+                    DateField("Expected delivery (optional)", expected, { expected = it }, Modifier.fillMaxWidth())
                     val total = (labour.toDoubleOrNull() ?: 0.0) + (other.toDoubleOrNull() ?: 0.0) - (discount.toDoubleOrNull() ?: 0.0)
                     Card(colors = CardDefaults.cardColors(containerColor = GoldLight), shape = RoundedCornerShape(16.dp)) {
                         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -592,6 +608,7 @@ class MainActivity : ComponentActivity() {
                                     put("updatedAt", System.currentTimeMillis().toString())
                                 }
                                 db.addWork(v)
+                                onSaved()
                                 Toast.makeText(this@MainActivity, "✓ Work saved", Toast.LENGTH_SHORT).show()
                                 onBack()
                             }
@@ -610,6 +627,32 @@ class MainActivity : ComponentActivity() {
         OutlinedButton(onClick = onClick, modifier = modifier.height(56.dp), shape = RoundedCornerShape(12.dp)) {
             Text(value, Modifier.weight(1f), color = if (value.startsWith("Select")) Color.Gray else Ink)
             Icon(Icons.Default.KeyboardArrowDown, null)
+        }
+    }
+
+    @Composable
+    private fun DateField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val calendar = remember(value) {
+            Calendar.getInstance().apply {
+                try {
+                    if (value.isNotBlank()) {
+                        val p = value.split("/")
+                        if (p.size == 3) set(p[2].toInt(), p[1].toInt() - 1, p[0].toInt())
+                    }
+                } catch (_: Exception) { }
+            }
+        }
+        OutlinedButton(onClick = {
+            DatePickerDialog(context, { _, year, month, day ->
+                onValueChange(String.format(Locale.US, "%02d/%02d/%04d", day, month + 1, year))
+            }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+        }, modifier = modifier.height(56.dp), shape = RoundedCornerShape(12.dp)) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Text(label, fontSize = 11.sp, color = Color.Gray)
+                Text(value.ifBlank { "Select date" }, fontSize = 15.sp, color = if (value.isBlank()) Color.Gray else Ink)
+            }
+            Icon(Icons.Default.DateRange, null)
         }
     }
 
@@ -662,8 +705,8 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun ReportsScreen() {
-        val d = db.dashboard()
-        val works = db.works()
+        val d = remember { db.dashboard() }
+        val works = remember { db.works() }
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("Business reports", fontSize = 25.sp, fontWeight = FontWeight.Bold) }
             item { Text("A simple view of the numbers that matter.", color = Color.Gray) }
