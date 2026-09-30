@@ -59,7 +59,18 @@ class DbHelper(context: Context) : SQLiteOpenHelper(context, "smith.db", null, 2
     }
     fun addWork(v:ContentValues):Long=writableDatabase.insert("works",null,v)
     fun updateWork(id:Long,v:ContentValues):Int=writableDatabase.update("works",v,"id=?",arrayOf(id.toString()))
-    fun deleteWork(id:Long){writableDatabase.delete("payments","workId=?",arrayOf(id.toString()));writableDatabase.delete("works","id=?",arrayOf(id.toString()))}
+    fun updateWorkStatus(id:Long,status:String,deliveryDate:String):Int {
+        val v=ContentValues().apply {
+            put("status",status)
+            put("deliveryDate",deliveryDate)
+            put("updatedAt",System.currentTimeMillis().toString())
+        }
+        return writableDatabase.update("works",v,"id=?",arrayOf(id.toString()))
+    }
+    fun deleteWork(id:Long){
+        writableDatabase.delete("payments","workId=?",arrayOf(id.toString()))
+        writableDatabase.delete("works","id=?",arrayOf(id.toString()))
+    }
 
     fun works(search:String="",status:String=""):List<Map<String,Any>> {
         val out=mutableListOf<Map<String,Any>>()
